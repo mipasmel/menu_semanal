@@ -134,10 +134,7 @@
         let show_shopping_list = false; // Controls visibility of the shopping list
         let current_plan_id = null; // Stores the ID of the currently loaded/saved plan
 
-        // IMPORTANTE: URL de tu backend de Flask desplegado en Render
-        // Reemplaza 'YOUR_RENDER_BACKEND_URL' con la URL real de tu servicio Flask en Render.
-        // Durante el desarrollo local, podrías usar 'http://localhost:5000'
-        const BACKEND_BASE_URL = 'YOUR_RENDER_BACKEND_URL/api/diet_plan';
+        const BACKEND_BASE_URL = 'https://menu-semanal.onrender.com/api/diet_plan'; 
 
         // Utility function to get a random item from an array
         const get_random_item = (arr) => arr[Math.floor(Math.random() * arr.length)];
@@ -176,6 +173,13 @@
             if (weekly_plan[active_day]) {
                 MEAL_TYPES.forEach(meal_type => {
                     const meal = weekly_plan[active_day][meal_type];
+                    // Defensive check: Ensure meal object is defined before rendering its properties
+                    if (!meal) {
+                        console.error(`Error: Meal type '${meal_type}' for day '${active_day}' is undefined in weekly_plan.`);
+                        // You might want to display a placeholder or skip this meal entirely.
+                        // For now, we'll skip rendering this particular meal slot.
+                        return;
+                    }
                     const meal_div = document.createElement('div');
                     meal_div.className = 'mb-6 bg-green-50 p-4 rounded-lg shadow-inner';
                     meal_div.innerHTML = `
@@ -198,13 +202,16 @@
                     `;
                     meal_plan_display.appendChild(meal_div);
                 });
+            } else {
+                 console.error(`Error: No plan found for active day '${active_day}'. This should not happen if plan is generated.`);
+                 meal_plan_display.innerHTML = `<p class="text-red-500 text-center py-4">Error: No se pudo cargar el menú para este día. Intenta generar un nuevo plan.</p>`;
             }
 
             // Attach event listeners to swap recipe buttons
             meal_plan_display.querySelectorAll('button').forEach(button => {
                 button.addEventListener('click', (event) => {
                     const day = event.target.dataset.day;
-                    const meal_type = event.target.dataset.meal_type;
+                    const meal_type = event.target.dataset.mealType; 
                     swap_recipe(day, meal_type);
                 });
             });
@@ -212,13 +219,29 @@
 
         // Function to swap a recipe for a quick one
         const swap_recipe = (day, meal_type) => {
-            const current_recipe_name = weekly_plan[day][meal_type].name;
-            let new_quick_recipe = get_random_item(QUICK_RECIPES);
-
-            // Ensure the new quick recipe is different from the current one
-            while (new_quick_recipe.name === current_recipe_name) {
-                new_quick_recipe = get_random_item(QUICK_RECIPES);
+            // Defensive check: Ensure the current meal object exists
+            if (!weekly_plan[day] || !weekly_plan[day][meal_type]) {
+                console.error(`Error in swap_recipe: Plan for day '${day}', meal type '${meal_type}' is undefined.`);
+                display_message("No se pudo cambiar la receta. El plan no está completo o el tipo de comida es inválido.", 3000);
+                return;
             }
+
+            const current_recipe = weekly_plan[day][meal_type];
+            let new_quick_recipe;
+            let attempts = 0;
+            const MAX_ATTEMPTS = 10; // Prevent potential infinite loops if quick recipes are very limited
+
+            do {
+                new_quick_recipe = get_random_item(QUICK_RECIPES);
+                attempts++;
+                // If get_random_item returns undefined (e.g., QUICK_RECIPES is empty)
+                // or if we've tried too many times without finding a different recipe.
+                if (!new_quick_recipe || attempts > MAX_ATTEMPTS) {
+                    console.warn("Could not find a different quick recipe after multiple attempts or QUICK_RECIPES is empty.");
+                    display_message("No hay otra receta rápida diferente disponible para cambiar.", 3000);
+                    return;
+                }
+            } while (new_quick_recipe.name === current_recipe.name); // Keep trying until a different recipe is found
 
             weekly_plan[day][meal_type] = new_quick_recipe;
             render_meal_plan(); // Re-render the meal plan for the active day
@@ -230,10 +253,13 @@
             const list = {};
             Object.values(weekly_plan).forEach(day_meals => {
                 Object.values(day_meals).forEach(meal => {
-                    meal.ingredients.forEach(ingredient => {
-                        const lower_case_ingredient = ingredient.toLowerCase();
-                        list[lower_case_ingredient] = (list[lower_case_ingredient] || 0) + 1;
-                    });
+                    // Defensive check: Ensure meal object is defined
+                    if (meal && meal.ingredients) {
+                        meal.ingredients.forEach(ingredient => {
+                            const lower_case_ingredient = ingredient.toLowerCase();
+                            list[lower_case_ingredient] = (list[lower_case_ingredient] || 0) + 1;
+                        });
+                    }
                 });
             });
 
@@ -272,11 +298,12 @@
                     display_message(`¡Plan guardado exitosamente! ID: ${current_plan_id}`);
                 } else {
                     const error_data = await response.json();
-                    display_message(`Error al guardar el plan: ${error_data.error || response.statusText}`, 5000);
+                    display_message(`Error al guardar el plan: ${error_data.error || response.statusText}. Por favor, verifica la URL del backend.`, 5000);
                 }
             } catch (error) {
                 console.error("Error al guardar el plan:", error);
-                display_message("No se pudo conectar con el servidor para guardar el plan.", 5000);
+                display_message("No se pudo conectar con el servidor para guardar el plan. Asegúrate de que la URL del backend sea correcta.", 5000);
+                // Si estás depurando, verifica la consola del navegador para ver errores de red o CORS.
             }
         };
 
@@ -297,7 +324,7 @@
                         weekly_plan = result.plan;
                         current_plan_id = result.id;
                         update_display_plan_id();
-                        render_meal_plan();
+                        render_meal_plan(); // Re-render with newly loaded plan
                         if (show_shopping_list) {
                             render_shopping_list();
                         }
@@ -307,11 +334,12 @@
                     }
                 } else {
                     const error_data = await response.json();
-                    display_message(`Error al cargar el plan: ${error_data.message || response.statusText}`, 5000);
+                    display_message(`Error al cargar el plan: ${error_data.message || response.statusText}. Por favor, verifica la URL del backend.`, 5000);
                 }
             } catch (error) {
                 console.error("Error al cargar el plan:", error);
-                display_message("No se pudo conectar con el servidor para cargar el plan.", 5000);
+                display_message("No se pudo conectar con el servidor para cargar el plan. Asegúrate de que la URL del backend sea correcta.", 5000);
+                // Si estás depurando, verifica la consola del navegador para ver errores de red o CORS.
             }
         };
 
@@ -365,6 +393,11 @@
                 render_shopping_list();
             }
             display_message("¡Nuevo plan semanal generado!");
+        });
+
+        // Event listener for exporting to PDF (simulated)
+        document.getElementById('export_pdf').addEventListener('click', () => {
+            display_message("Generando PDF... (funcionalidad de generación de PDF no disponible en este entorno)", 5000);
         });
 
         // Event listener for Save Plan button
