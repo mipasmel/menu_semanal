@@ -56,7 +56,7 @@
         <!-- Shopping List Section -->
         <div class="md:w-1/2 bg-gray-50 p-6 rounded-xl shadow-inner">
             <div class="flex justify-between items-center mb-4">
-                <h2 class="text-3xl font-bold text-green-600">Lista de la Compra</h2>
+                <h2 class="text-3xl font-bold text-green-600">Lista de la Compra del Día</h2>
                 <button id="toggle_shopping_list" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-full shadow-md transition-transform transform hover:scale-105">
                     Mostrar
                 </button>
@@ -248,10 +248,12 @@
             display_message(`¡Receta de ${meal_type} del ${day} cambiada por una rápida!`);
         };
 
-        // Function to generate and render the shopping list
+        // Function to generate and render the shopping list (now for active day only)
         const render_shopping_list = () => {
             const list = {};
-            Object.values(weekly_plan).forEach(day_meals => {
+            const day_meals = weekly_plan[active_day]; // Get meals for the active day only
+
+            if (day_meals) {
                 Object.values(day_meals).forEach(meal => {
                     // Defensive check: Ensure meal object is defined
                     if (meal && meal.ingredients) {
@@ -261,16 +263,25 @@
                         });
                     }
                 });
-            });
+            } else {
+                console.warn(`No meals found for active day '${active_day}' to generate shopping list.`);
+            }
 
             const shopping_list_items = document.getElementById('shopping_list_items');
             shopping_list_items.innerHTML = ''; // Clear previous content
-            Object.keys(list).sort().forEach(item => {
+            if (Object.keys(list).length === 0) {
                 const li = document.createElement('li');
-                li.className = 'py-1 border-b border-gray-200 last:border-b-0';
-                li.textContent = item.charAt(0).toUpperCase() + item.slice(1);
+                li.className = 'py-1 text-gray-500 italic';
+                li.textContent = 'No hay ingredientes para este día.';
                 shopping_list_items.appendChild(li);
-            });
+            } else {
+                Object.keys(list).sort().forEach(item => {
+                    const li = document.createElement('li');
+                    li.className = 'py-1 border-b border-gray-200 last:border-b-0';
+                    li.textContent = item.charAt(0).toUpperCase() + item.slice(1);
+                    shopping_list_items.appendChild(li);
+                });
+            }
         };
 
         // Function to update the displayed plan ID
@@ -278,6 +289,8 @@
             const display_id_span = document.getElementById('display_plan_id');
             display_id_span.textContent = current_plan_id ? current_plan_id : 'Ninguno';
         };
+
+        // --- Funciones para interactuar con el Backend ---
 
         // Función para guardar el plan actual
         const save_current_plan = async () => {
@@ -298,11 +311,11 @@
                     display_message(`¡Plan guardado exitosamente! ID: ${current_plan_id}`);
                 } else {
                     const error_data = await response.json();
-                    display_message(`Error al guardar el plan: ${error_data.error || response.statusText}. Por favor, verifica la URL del backend.`, 5000);
+                    display_message(`Error al guardar el plan: ${error_data.error || response.statusText}.`, 5000);
                 }
             } catch (error) {
                 console.error("Error al guardar el plan:", error);
-                display_message("No se pudo conectar con el servidor para guardar el plan. Asegúrate de que la URL del backend sea correcta.", 5000);
+                display_message("No se pudo conectar con el servidor para guardar el plan. Verifica tu conexión o la URL del backend.", 5000);
                 // Si estás depurando, verifica la consola del navegador para ver errores de red o CORS.
             }
         };
@@ -323,9 +336,9 @@
                     if (result.plan) {
                         weekly_plan = result.plan;
                         current_plan_id = result.id;
-                        update_display_plan_id();
+                        update_display_id_display(); 
                         render_meal_plan(); // Re-render with newly loaded plan
-                        if (show_shopping_list) {
+                        if (show_shopping_list) { // Also update shopping list if visible
                             render_shopping_list();
                         }
                         display_message(`¡Plan ID ${plan_id_to_load} cargado exitosamente!`);
@@ -334,14 +347,16 @@
                     }
                 } else {
                     const error_data = await response.json();
-                    display_message(`Error al cargar el plan: ${error_data.message || response.statusText}. Por favor, verifica la URL del backend.`, 5000);
+                    display_message(`Error al cargar el plan: ${error_data.message || response.statusText}.`, 5000);
                 }
             } catch (error) {
                 console.error("Error al cargar el plan:", error);
-                display_message("No se pudo conectar con el servidor para cargar el plan. Asegúrate de que la URL del backend sea correcta.", 5000);
+                display_message("No se pudo conectar con el servidor para cargar el plan. Verifica tu conexión o la URL del backend.", 5000);
                 // Si estás depurando, verifica la consola del navegador para ver errores de red o CORS.
             }
         };
+
+        // --- Funciones de Compartir ---
 
         // Función para generar y mostrar el enlace compartible
         const generate_share_link = () => {
@@ -370,6 +385,7 @@
             display_message("¡Enlace copiado al portapapeles!");
         };
 
+
         // Event listener for toggling shopping list visibility
         document.getElementById('toggle_shopping_list').addEventListener('click', () => {
             show_shopping_list = !show_shopping_list;
@@ -395,11 +411,6 @@
             display_message("¡Nuevo plan semanal generado!");
         });
 
-        // Event listener for exporting to PDF (simulated)
-        document.getElementById('export_pdf').addEventListener('click', () => {
-            display_message("Generando PDF... (funcionalidad de generación de PDF no disponible en este entorno)", 5000);
-        });
-
         // Event listener for Save Plan button
         document.getElementById('save_plan_btn').addEventListener('click', save_current_plan);
 
@@ -419,26 +430,33 @@
 
             // Render day navigation buttons
             const day_navigation = document.getElementById('day_navigation');
-            DAYS_OF_WEEK.forEach(day => {
-                const button = document.createElement('button');
-                button.className = `px-4 py-2 rounded-lg text-sm md:text-base font-semibold transition-all duration-300
-                    ${active_day === day ? 'bg-green-600 text-white shadow-lg' : 'bg-gray-100 text-gray-700 hover:bg-green-100 hover:text-green-800'}`;
-                button.textContent = day;
-                button.addEventListener('click', () => {
-                    // Update active day and re-render day navigation
-                    const current_active_button = document.querySelector(`#day_navigation button.bg-green-600`);
-                    if (current_active_button) {
-                        current_active_button.classList.remove('bg-green-600', 'text-white', 'shadow-lg');
-                        current_active_button.classList.add('bg-gray-100', 'text-gray-700', 'hover:bg-green-100', 'hover:text-green-800');
-                    }
-                    active_day = day;
-                    button.classList.add('bg-green-600', 'text-white', 'shadow-lg');
-                    button.classList.remove('bg-gray-100', 'text-gray-700', 'hover:bg-green-100', 'hover:text-green-800');
+            if (day_navigation) { // Defensive check: Ensure element exists
+                DAYS_OF_WEEK.forEach(day => {
+                    const button = document.createElement('button');
+                    button.className = `px-4 py-2 rounded-lg text-sm md:text-base font-semibold transition-all duration-300
+                        ${active_day === day ? 'bg-green-600 text-white shadow-lg' : 'bg-gray-100 text-gray-700 hover:bg-green-100 hover:text-green-800'}`;
+                    button.textContent = day;
+                    button.addEventListener('click', () => {
+                        // Update active day and re-render day navigation
+                        const current_active_button = document.querySelector(`#day_navigation button.bg-green-600`);
+                        if (current_active_button) {
+                            current_active_button.classList.remove('bg-green-600', 'text-white', 'shadow-lg');
+                            current_active_button.classList.add('bg-gray-100', 'text-gray-700', 'hover:bg-green-100', 'hover:text-green-800');
+                        }
+                        active_day = day;
+                        button.classList.add('bg-green-600', 'text-white', 'shadow-lg');
+                        button.classList.remove('bg-gray-100', 'text-gray-700', 'hover:bg-green-100', 'hover:text-green-800');
 
-                    render_meal_plan(); // Render meals for the new active day
+                        render_meal_plan(); // Render meals for the new active day
+                        if (show_shopping_list) { // If shopping list is visible, update it for the new day
+                            render_shopping_list();
+                        }
+                    });
+                    day_navigation.appendChild(button);
                 });
-                day_navigation.appendChild(button);
-            });
+            } else {
+                console.error("Error: Element with ID 'day_navigation' not found. Day buttons cannot be rendered.");
+            }
 
             render_meal_plan(); // Initial render of the meal plan
             update_display_plan_id(); // Initial update of the displayed plan ID
